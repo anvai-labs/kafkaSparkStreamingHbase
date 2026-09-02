@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scaffold-contract:
+    name: Scaffold Contract
+    if: >-
+      github.event_name != 'pull_request' ||
+      vars.OWNER_PRIVATE_CI_ENABLED != 'true' ||
+      github.actor_id != '5168752' ||
+      github.event.pull_request.user.id != 5168752 ||
+      github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Enforce dormant-scaffold contract
+        run: |
+          set -euo pipefail
+          test -s README.md
+          test -s LICENSE
+          unexpected="$(git ls-files | grep -Ev '^(\.gitignore|LICENSE|README\.md|\.github/)' || true)"
+          if [ -n "${unexpected}" ]; then
+            echo "Implementation files require substantive build/test CI:" >&2
+            echo "${unexpected}" >&2
+            exit 1
+          fi
+          if git ls-files -s | awk '$1 == "120000" { found = 1 } END { exit !found }'; then
+            echo "Symlinks are not permitted in the dormant scaffold" >&2
+            exit 1
+          fi
+
+  ci-success:
+    name: CI Success
+    if: >-
+      always() &&
+      (github.event_name != 'pull_request' ||
+      vars.OWNER_PRIVATE_CI_ENABLED != 'true' ||
+      github.actor_id != '5168752' ||
+      github.event.pull_request.user.id != 5168752 ||
+      github.event.pull_request.head.repo.full_name != github.repository)
+    needs: scaffold-contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify scaffold contract
+        env:
+          CONTRACT_RESULT: ${{ needs.scaffold-contract.result }}
+        run: test "${CONTRACT_RESULT}" = "success"
