@@ -25,7 +25,7 @@ jobs:
       github.event.pull_request.user.id == 5168752 &&
       github.actor_id == '5168752' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, public-overflow]
     timeout-minutes: 5
     steps:
       - name: Verify immutable owner and same-repository head
@@ -56,7 +56,7 @@ jobs:
           test "${PR_AUTHOR_ID}" = "${OWNER_GITHUB_USER_ID}"
           test "${HEAD_REPOSITORY}" = "${GITHUB_REPOSITORY}"
       - name: Check out exact trusted PR revision
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
@@ -77,13 +77,27 @@ jobs:
             exit 1
           fi
 
+  dependency-review:
+    name: Dependency Review
+    needs: authorize-owner
+    runs-on: [self-hosted, Linux, X64, public-overflow]
+    timeout-minutes: 10
+    steps:
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4
+
   ci-success:
     name: CI Success
-    needs: scaffold-contract
+    if: always() && needs.authorize-owner.result == 'success'
+    needs: [authorize-owner, scaffold-contract, dependency-review]
     runs-on: [self-hosted, Linux, X64, public-overflow]
     timeout-minutes: 5
     steps:
       - name: Verify scaffold contract
         env:
           CONTRACT_RESULT: ${{ needs.scaffold-contract.result }}
-        run: test "${CONTRACT_RESULT}" = "success"
+          DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency-review.result }}
+        run: |
+          set -euo pipefail
+          test "${CONTRACT_RESULT}" = "success"
+          test "${DEPENDENCY_REVIEW_RESULT}" = "success"

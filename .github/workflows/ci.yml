@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: public-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   scaffold-contract:
     name: Scaffold Contract
@@ -22,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Enforce dormant-scaffold contract
@@ -41,6 +45,19 @@ jobs:
             exit 1
           fi
 
+  dependency-review:
+    name: Dependency Review
+    if: >-
+      github.event_name == 'pull_request' &&
+      (vars.OWNER_PRIVATE_CI_ENABLED != 'true' ||
+      github.actor_id != '5168752' ||
+      github.event.pull_request.user.id != 5168752 ||
+      github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4
+
   ci-success:
     name: CI Success
     if: >-
@@ -50,10 +67,19 @@ jobs:
       github.actor_id != '5168752' ||
       github.event.pull_request.user.id != 5168752 ||
       github.event.pull_request.head.repo.full_name != github.repository)
-    needs: scaffold-contract
+    needs: [scaffold-contract, dependency-review]
     runs-on: ubuntu-latest
     steps:
       - name: Verify scaffold contract
         env:
           CONTRACT_RESULT: ${{ needs.scaffold-contract.result }}
-        run: test "${CONTRACT_RESULT}" = "success"
+          DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency-review.result }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          test "${CONTRACT_RESULT}" = "success"
+          if [ "${EVENT_NAME}" = "pull_request" ]; then
+            test "${DEPENDENCY_REVIEW_RESULT}" = "success"
+          else
+            test "${DEPENDENCY_REVIEW_RESULT}" = "skipped"
+          fi
