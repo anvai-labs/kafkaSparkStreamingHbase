@@ -1,1 +1,0 @@
-This tracked file intentionally violates the dormant scaffold contract.
